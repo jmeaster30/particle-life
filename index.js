@@ -1,29 +1,49 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-let mesh;
 let renderer;
 let scene;
 let camera;
 let controls;
 
-const particleSize = 0.05;
-const spaceHalfSize = 5;
-const friction = 0.95;
+const particleSize = 0.1;
+const spaceHalfSize = 10;
+const friction = 0.99;
 
+let particleTypes = {
+  base: '#F0F'
+}
 let particles = []
 let gravityForces = [
   {
-    minDist: 0,
-    maxDist: 10,
-    force: -25,
-  },
-  {
-    minDist: 10,
-    maxDist: 1000,
-    force: 0.5,
+    typeSrc: "base",
+    typeDest: "base",
+    forces: [
+      {
+        minDist: 0,
+        maxDist: 20,
+        force: -2,
+      },
+      {
+        minDist: 20,
+        maxDist: 1000,
+        force: 1,
+      }
+    ]
   }
 ];
+
+function addType() {
+  let randomHexString = [...Array(6)].map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+  console.log(randomHexString);
+  let typename = `Type${Object.keys(particleTypes).length}`;
+  particleTypes[typename] = `#${randomHexString}`;
+  generateParticles(typename, 20);
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById("addTypeButton").addEventListener('click', addType);
+});
 
 function updateParticleVelocities(particle, index, particles) {
   let forcex = 0;
@@ -36,7 +56,9 @@ function updateParticleVelocities(particle, index, particles) {
     const nx = distx / Math.sqrt(dsq);
     const ny = disty / Math.sqrt(dsq);
 
-    const rule = gravityForces.find(({minDist, maxDist}) => dsq >= (minDist * minDist) && dsq < (maxDist * maxDist))
+    const rule = gravityForces
+      .find(({typeSrc, typeDest}) => typeSrc == particle.type && typeDest == other.type)
+      ?.forces?.find(({minDist, maxDist}) => dsq >= (minDist * minDist) && dsq < (maxDist * maxDist));
     if (!rule) return;
 
     const a = (rule.maxDist * rule.maxDist - rule.minDist * rule.minDist) / 2
@@ -70,36 +92,47 @@ function updateParticlePosition(particle, time){
     const yoff = (Math.floor(idx / 3) - 1) * spaceHalfSize * 2;
     mesh.position.x = particle.position.x + xoff;
     mesh.position.y = particle.position.y + yoff;
-    mesh.rotation.x = time / 2000;
-    mesh.rotation.y = time / 1000;
+    mesh.rotation.x = time / particle.rotationSpeed.x;
+    mesh.rotation.y = time / particle.rotationSpeed.y;
   });
 }
 
-function generateMeshes() {
-  for (let i = 0; i < 250; i++) {
-    const geometry = new THREE.BoxGeometry( particleSize, particleSize, particleSize );
-    const material = new THREE.MeshNormalMaterial();
+function createRandomParticle(type) {
+  const color = particleTypes[type];
+  const geometry = new THREE.DodecahedronGeometry( particleSize / 2 );
+  const material = new THREE.MeshPhongMaterial({color: color});
 
-    let particle = {
-      position: {
-        x: Math.random() * spaceHalfSize * 2 - spaceHalfSize,
-        y: Math.random() * spaceHalfSize * 2 - spaceHalfSize,
-      },
-      velocity: {
-        x: (Math.random() * 20 - 10) * particleSize,
-        y: (Math.random() * 20 - 10) * particleSize,
-      },     
-      meshes: []
-    };
+  let particle = {
+    type,
+    position: {
+      x: Math.random() * spaceHalfSize * 2 - spaceHalfSize,
+      y: Math.random() * spaceHalfSize * 2 - spaceHalfSize,
+    },
+    velocity: {
+      x: (Math.random() * 20 - 10) * particleSize,
+      y: (Math.random() * 20 - 10) * particleSize,
+    },     
+    rotationSpeed: {
+      x: (Math.random() * 2000 + 1000),
+      y: (Math.random() * 2000 + 1000),
+    },
+    meshes: []
+  };
 
-    for(let j = 0; j < 9; j++) {
-      mesh = new THREE.Mesh( geometry, material );
-      scene.add( mesh );
-      particle.meshes.push(mesh);
-    }
-    particles.push(particle);
+  for(let j = 0; j < 9; j++) {
+    let mesh = new THREE.Mesh( geometry, material );
+    mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    scene.add( mesh );
+    particle.meshes.push(mesh);
   }
-  
+  particles.push(particle);
+}
+
+function generateParticles(type, number) {
+  for (let i = 0; i < number; i++) {
+    createRandomParticle(type)
+  }
 }
 
 function updateMeshes(time) {
@@ -120,14 +153,18 @@ function initialize() {
 
   scene = new THREE.Scene();
 
-  generateMeshes();
+  generateParticles("base", 50);
 
   renderer = new THREE.WebGLRenderer( { antialias: true } );
-
   renderer.setSize( container.offsetWidth, container.offsetHeight );
+  renderer.shadowMap.enabled = true;
   renderer.setAnimationLoop( animation );
   console.log(renderer);
   container.appendChild( renderer.domElement );
+
+  const light = new THREE.DirectionalLight( 0xffffff , 1); // soft white light
+  light.position.z = 10
+  scene.add( light );
 
   controls = new OrbitControls(camera, renderer.domElement);
   controls.mouseButtons = {
